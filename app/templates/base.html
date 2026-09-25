@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="{{ 'en' if request.blueprint == 'admin' else lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title if page_title is defined else t(page_name|default('home')) }} · Vasilis Xentes</title>
+  <meta name="description" content="{{ meta_description|default(t('footer_text')) }}">
+  {% if request.blueprint == 'public' and page_name is defined %}
+  <link rel="canonical" href="{{ canonical }}">
+  <link rel="alternate" hreflang="el" href="{{ base_url }}{{ request.path }}?lang=el">
+  <link rel="alternate" hreflang="en" href="{{ base_url }}{{ request.path }}?lang=en">
+  <link rel="alternate" hreflang="x-default" href="{{ base_url }}{{ request.path }}">
+  {% endif %}
+  <meta property="og:title" content="{{ page_title if page_title is defined else t(page_name|default('home')) }} · Vasilis Xentes">
+  <meta property="og:description" content="{{ meta_description|default(t('footer_text')) }}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{ canonical }}">
+  <meta property="og:locale" content="{{ 'el_GR' if lang == 'el' else 'en_GB' }}">
+  <meta name="theme-color" content="#123e35">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
+  <script src="{{ url_for('static', filename='js/site.js') }}" defer></script>
+  {% if request.blueprint == 'public' %}
+  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {'@context': 'https://schema.org', '@type': 'Person', 'name': 'Vasilis Xentes', 'jobTitle': 'Web Developer', 'url': base_url, 'email': 'xentesvasilis@gmail.com', 'telephone': '+306989566911', 'sameAs': ['https://github.com/xentesvasilis/'], 'knowsAbout': ['Web development', 'Python', 'Flask', 'Business automation']}|tojson }}</script>
+  {% endif %}
+</head>
+<body>
+<a class="skip-link" href="#main">{{ t('skip') }}</a>
+<header class="site-header">
+  <div class="container nav-bar">
+    <a class="brand" href="{{ url_for('public.home') }}" aria-label="Vasilis Xentes — {{ t('home') }}"><span class="brand-mark" aria-hidden="true">vx<span>.</span></span><span>VASILIS XENTES<small>WEB DEVELOPMENT</small></span></a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">{{ t('menu') }} <span aria-hidden="true">☰</span></button>
+    <nav id="primary-nav" class="primary-nav" aria-label="{{ t('menu') }}">
+      {% for key in ['services','industries','portfolio','pricing','about'] %}<a href="{{ url_for('public.' + key) }}" {% if page_name|default('') == key %}aria-current="page"{% endif %}>{{ t(key) }}</a>{% endfor %}
+      <a class="nav-cta" href="{{ url_for('public.book_call') }}">{{ t('book_call') }} <span aria-hidden="true">↗</span></a>
+      <form class="language-switch" action="{{ url_for('public.set_language') }}" method="post" aria-label="Language / Γλώσσα">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ request.path }}">
+        <button name="language" value="el" lang="el" aria-label="Ελληνικά" {% if lang == 'el' %}aria-pressed="true"{% endif %}>EL</button><span aria-hidden="true">|</span><button name="language" value="en" lang="en" aria-label="English" {% if lang == 'en' %}aria-pressed="true"{% endif %}>EN</button>
+      </form>
+    </nav>
+  </div>
+</header>
+{% if choose_language %}
+<section class="language-gate container" aria-labelledby="language-title">
+  <div><p class="eyebrow">ΚΑΛΩΣ ΗΡΘΕΣ / WELCOME</p><h2 id="language-title">Ελληνικά ή English;</h2><p>{{ t('language_note') }}</p></div>
+  <form action="{{ url_for('public.set_language') }}" method="post" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ request.path }}">
+    <button class="button" name="language" value="el" lang="el">Ελληνικά</button><button class="button button-outline" name="language" value="en" lang="en">English</button>
+  </form>
+</section>
+{% endif %}
+<main id="main">
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="container notice {{ category }}" role="status">{{ message }}</div>{% endfor %}{% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="container footer-grid"><div><a class="footer-brand" href="{{ url_for('public.home') }}">Vasilis Xentes<span>.</span></a><p>{{ t('footer_text') }}</p></div><div class="contact-links"><a href="mailto:xentesvasilis@gmail.com">xentesvasilis@gmail.com</a><a href="tel:+306989566911">+30 6989566911</a><a href="https://github.com/xentesvasilis/" target="_blank" rel="noopener noreferrer">{{ t('view_github') }} ↗</a></div><nav aria-label="Footer"><a href="{{ url_for('public.contact') }}">{{ t('contact') }}</a><a href="{{ url_for('public.process') }}">{{ t('process') }}</a><a href="{{ url_for('public.privacy') }}">{{ t('privacy') }}</a><a href="{{ url_for('public.terms') }}">{{ t('terms') }}</a></nav></div>
+  <div class="container footer-bottom"><span>© 2026 Vasilis Xentes</span><span>Python / Flask / Web</span></div>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% from 'components.html' import page_heading, cta with context %}
+{% block content %}{{ page_heading('services', t('what_build'), t('what_intro')) }}<div class="container service-grid">{% for title, text, items in content.services %}<article class="service-card"><span class="card-number">0{{ loop.index }}</span><h2>{{ t(title) }}</h2><p>{{ t(text) }}</p><ul class="check-list">{% for item in t(items) %}<li>{{ item }}</li>{% endfor %}</ul></article>{% endfor %}</div>{{ cta() }}{% endblock %}

@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% from 'components.html' import page_heading, process_steps, cta with context %}
+{% block content %}{{ page_heading('process', t('process_title'), t('process_intro')) }}<section class="container">{{ process_steps() }}</section>{{ cta() }}{% endblock %}

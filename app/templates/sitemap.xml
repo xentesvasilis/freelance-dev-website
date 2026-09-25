@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+{% for p in pages if p != 'book-call' %}{% set path = '/' if p == 'home' else '/' + p %}{% for language in ['el', 'en'] %}<url><loc>{{ base_url }}{{ path }}?lang={{ language }}</loc><xhtml:link rel="alternate" hreflang="el" href="{{ base_url }}{{ path }}?lang=el"/><xhtml:link rel="alternate" hreflang="en" href="{{ base_url }}{{ path }}?lang=en"/></url>{% endfor %}{% endfor %}
+</urlset>

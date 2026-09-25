@@ -1,0 +1,2 @@
+{% extends 'base.html' %}
+{% block content %}<article class="container legal prose"><p class="eyebrow">VASILIS XENTES</p><h1>{{ t(page_name) }}</h1>{% for title, text in sections %}<section><h2>{{ t(title) }}</h2><p>{{ t(text) }}</p></section>{% endfor %}<a href="mailto:xentesvasilis@gmail.com">xentesvasilis@gmail.com</a></article>{% endblock %}
