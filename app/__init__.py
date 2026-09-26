@@ -2,6 +2,7 @@ import os
 import secrets
 import logging
 from datetime import timedelta
+from email.utils import formataddr, parseaddr
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -67,10 +68,13 @@ def create_app(test_config=None):
         PERMANENT_SESSION_LIFETIME=timedelta(hours=2), MAX_CONTENT_LENGTH=64 * 1024,
         WTF_CSRF_TIME_LIMIT=7200,
         MAIL_ENABLED=env_bool("MAIL_ENABLED", "false"),
+        MAIL_PROVIDER=os.getenv("MAIL_PROVIDER", "smtp").strip().lower(),
         MAIL_HOST=os.getenv("MAIL_HOST", "smtp.gmail.com"), MAIL_PORT=int(os.getenv("MAIL_PORT", "587")),
         MAIL_USE_TLS=env_bool("MAIL_USE_TLS", "true"),
         MAIL_ADDRESS=os.getenv("MAIL_ADDRESS", "xentesvasilis@gmail.com"),
         MAIL_APP_PASSWORD=os.getenv("MAIL_APP_PASSWORD", ""),
+        RESEND_API_KEY=os.getenv("RESEND_API_KEY", ""),
+        RESEND_FROM_ADDRESS=os.getenv("RESEND_FROM_ADDRESS", ""),
         CALENDLY_SCHEDULING_URL=os.getenv("CALENDLY_SCHEDULING_URL", ""),
         RATELIMIT_STORAGE_URI=os.getenv("RATELIMIT_STORAGE_URI") or os.getenv("REDIS_URL") or "memory://",
         TRUST_RAILWAY_PROXY=env_bool("TRUST_RAILWAY_PROXY", "false"),
@@ -114,10 +118,29 @@ def create_app(test_config=None):
             validate_email(app.config["MAIL_ADDRESS"], check_deliverability=False)
         except EmailNotValidError:
             raise ValueError("MAIL_ADDRESS must be a valid email address") from None
-        if not app.config["MAIL_APP_PASSWORD"] or not app.config["MAIL_HOST"]:
-            raise ValueError("Enabled mail requires MAIL_HOST and MAIL_APP_PASSWORD")
-        if not 1 <= app.config["MAIL_PORT"] <= 65535 or (not app.config["MAIL_USE_TLS"] and app.config["MAIL_PORT"] != 465):
-            raise ValueError("Mail requires a valid port and encrypted SMTP")
+        provider = app.config["MAIL_PROVIDER"]
+        if provider == "smtp":
+            if not app.config["MAIL_APP_PASSWORD"] or not app.config["MAIL_HOST"]:
+                raise ValueError("Enabled SMTP requires MAIL_HOST and MAIL_APP_PASSWORD")
+            if not 1 <= app.config["MAIL_PORT"] <= 65535 or (not app.config["MAIL_USE_TLS"] and app.config["MAIL_PORT"] != 465):
+                raise ValueError("SMTP requires a valid port and encrypted transport")
+        elif provider == "resend":
+            sender = app.config["RESEND_FROM_ADDRESS"]
+            display, sender_email = parseaddr(sender)
+            try:
+                validate_email(sender_email, check_deliverability=False)
+            except EmailNotValidError:
+                raise ValueError("RESEND_FROM_ADDRESS must be a valid Resend sender") from None
+            sender_is_canonical = ((display and formataddr((display, sender_email)) == sender)
+                                   or (not display and sender_email == sender))
+            if (not app.config["RESEND_API_KEY"] or not sender_email or not sender_is_canonical
+                    or any(c in sender for c in "\r\n") or "," in sender or ";" in sender
+                    or any(c in app.config["RESEND_API_KEY"] for c in "\r\n")):
+                raise ValueError("Enabled Resend requires RESEND_API_KEY and a valid RESEND_FROM_ADDRESS")
+        else:
+            raise ValueError("MAIL_PROVIDER must be smtp or resend")
+    elif app.config["MAIL_PROVIDER"] not in ("smtp", "resend"):
+        raise ValueError("MAIL_PROVIDER must be smtp or resend")
     Path(app.instance_path).mkdir(exist_ok=True)
     if app.config["TRUST_RAILWAY_PROXY"]:
         from .proxy import RailwayProxy

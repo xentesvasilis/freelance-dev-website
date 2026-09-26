@@ -26,7 +26,7 @@ def test_seed_dev_idempotent(app):
 def test_smoke_test_disabled_and_mocked(app, monkeypatch):
     runner = app.test_cli_runner()
     assert runner.invoke(args=["mail-smoke-test"]).exit_code != 0
-    app.config.update(MAIL_ENABLED=True, MAIL_APP_PASSWORD="mock-only", MAIL_USE_TLS=True, MAIL_PORT=587)
+    app.config.update(MAIL_ENABLED=True, MAIL_PROVIDER="smtp", MAIL_APP_PASSWORD="mock-only", MAIL_USE_TLS=True, MAIL_PORT=587)
     connection = MagicMock()
     monkeypatch.setattr(smtplib, "SMTP", MagicMock(return_value=connection))
     result = runner.invoke(args=["mail-smoke-test"])

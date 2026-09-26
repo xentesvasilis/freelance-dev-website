@@ -12,10 +12,12 @@ from app.models import Admin
 def forbid_real_smtp(monkeypatch):
     import app as application
     monkeypatch.setattr(application, "load_dotenv", lambda *args, **kwargs: None)
-    for key in ("DATABASE_URL", "FLASK_DEBUG", "TRUSTED_HOSTS", "MAIL_APP_PASSWORD", "REDIS_URL", "TRUST_RAILWAY_PROXY"):
+    for key in ("DATABASE_URL", "FLASK_DEBUG", "TRUSTED_HOSTS", "MAIL_APP_PASSWORD", "MAIL_PROVIDER",
+                "RESEND_API_KEY", "RESEND_FROM_ADDRESS", "REDIS_URL", "TRUST_RAILWAY_PROXY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in {"SECRET_KEY": "isolated-test-key-not-for-production", "FLASK_ENV": "development",
                        "MAIL_ENABLED": "false", "MAIL_USE_TLS": "true", "MAIL_PORT": "587",
+                       "MAIL_PROVIDER": "smtp", "RESEND_API_KEY": "", "RESEND_FROM_ADDRESS": "",
                        "MAIL_ADDRESS": "xentesvasilis@gmail.com", "CALENDLY_SCHEDULING_URL": "",
                        "BASE_URL": "http://localhost", "RATELIMIT_STORAGE_URI": "memory://"}.items():
         monkeypatch.setenv(key, value)

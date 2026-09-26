@@ -31,7 +31,7 @@ def test_contact_validation(app, client, lead_data, field, value, monkeypatch):
 
 
 def test_lead_committed_before_notification(app, client, lead_data, monkeypatch):
-    def notify(lead):
+    def notify(lead, **kwargs):
         # Independent DB connection proves this isn't merely a pending ORM flush.
         engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"])
         try:
@@ -107,7 +107,7 @@ def test_mocked_smtp_success_and_html_escaping(app, client, lead_data, monkeypat
     smtp = connection.__enter__.return_value
     factory = MagicMock(return_value=connection)
     monkeypatch.setattr(smtplib, "SMTP", factory)
-    app.config.update(MAIL_ENABLED=True, MAIL_APP_PASSWORD="mock-only", MAIL_USE_TLS=True, MAIL_PORT=587)
+    app.config.update(MAIL_ENABLED=True, MAIL_PROVIDER="smtp", MAIL_APP_PASSWORD="mock-only", MAIL_USE_TLS=True, MAIL_PORT=587)
     lead_data["description"] = '<script>alert("x")</script> & a website request.'
     response = client.post("/contact", data=lead_data)
     assert response.status_code == 303

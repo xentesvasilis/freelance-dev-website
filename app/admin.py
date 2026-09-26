@@ -1,16 +1,20 @@
 from functools import wraps
 from datetime import timedelta
 from decimal import Decimal
+from secrets import token_urlsafe
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from .extensions import db, limiter
 from .forms import LoginForm, NotesForm, StatusForm
 from .models import Admin, Lead, ProjectCase, PROJECT_STATUSES, PROJECT_PRIORITIES, PROJECT_MILESTONES, utcnow
 from .project_forms import ConvertProjectForm, ProjectForm, ProjectStatusForm
 from .crm import crm_label
+from .mail_forms import RetryEmailForm
+from . import mail
 
 admin = Blueprint("admin", __name__, url_prefix="/admin")
 DUMMY_HASH = generate_password_hash("not-a-login-credential")
@@ -88,7 +92,16 @@ def find_lead(public_id):
 def detail(public_id):
     lead = find_lead(public_id)
     return render_template("admin/detail.html", lead=lead, status_form=StatusForm(status=lead.status), notes_form=NotesForm(notes=lead.notes),
-                           conversion_form=ConvertProjectForm(), project=lead.project_case, page_title="Lead detail")
+                           conversion_form=ConvertProjectForm(), retry_email_form=RetryEmailForm(retry_key=_new_retry_key(public_id)),
+                           project=lead.project_case, page_title="Lead detail")
+
+
+def _retry_serializer():
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="lead-email-retry-v1")
+
+
+def _new_retry_key(public_id):
+    return _retry_serializer().dumps({"lead": public_id, "nonce": token_urlsafe(24)})
 
 
 @admin.post("/leads/<public_id>/status")
@@ -116,6 +129,65 @@ def notes(public_id):
     lead.notes = form.notes.data
     db.session.commit()
     flash("Notes updated.", "success")
+    return redirect(url_for("admin.detail", public_id=public_id), code=303)
+
+
+@admin.post("/leads/<public_id>/retry-email")
+@login_required
+def retry_email(public_id):
+    form = RetryEmailForm()
+    if not form.validate_on_submit():
+        abort(400)
+    try:
+        retry_claim = _retry_serializer().loads(form.retry_key.data, max_age=3600)
+    except (BadSignature, SignatureExpired):
+        abort(400)
+    if retry_claim.get("lead") != public_id:
+        abort(400)
+
+    # PostgreSQL keeps the row locked across the send. A repeated POST waits,
+    # then sees sent and does not send again. Resend also gets the signed form
+    # token as its 24-hour idempotency key for retries of the same request.
+    lead = db.first_or_404(db.select(Lead).where(Lead.public_id == public_id).with_for_update())
+    if lead.email_status == "sent":
+        flash("Notification was already accepted; no duplicate was sent.", "success")
+        return redirect(url_for("admin.detail", public_id=public_id), code=303)
+    if lead.email_status not in ("failed", "disabled", "pending"):
+        abort(400)
+    # A pending status can mean the original provider accepted the message but
+    # saving the response status failed. Reuse the initial key for Resend's
+    # idempotency window; failed retries get their signed per-attempt key.
+    idempotency_key = (f"lead-intake/{lead.public_id}" if lead.email_status == "pending"
+                       else form.retry_key.data)
+    try:
+        outcome = mail.notify_lead(lead, idempotency_key=idempotency_key)
+        new_email_status = outcome
+        if outcome == "sent":
+            flash("Lead notification accepted by the provider.", "success")
+        else:
+            flash("Email notifications are disabled; no message was sent.", "error")
+    except mail.MailDeliveryError as exc:
+        new_email_status = "failed"
+        flash("Notification retry failed. Check the configured email provider.", "error")
+        current_app.logger.warning("Lead notification retry failed via provider=%s reason=%s",
+                                   current_app.config["MAIL_PROVIDER"], exc.category)
+    except Exception:
+        new_email_status = "failed"
+        flash("Notification retry failed. Check the configured email provider.", "error")
+        current_app.logger.warning("Lead notification retry failed via provider=%s reason=unknown",
+                                   current_app.config["MAIL_PROVIDER"])
+    try:
+        # Core update avoids the ORM's automatic updated_at onupdate hook.
+        db.session.execute(
+            db.update(Lead).where(Lead.id == lead.id).values(
+                email_status=new_email_status, updated_at=lead.updated_at
+            ).execution_options(synchronize_session=False)
+        )
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.error("Lead notification retry state could not be saved")
+        flash("Notification state could not be saved; inspect the Lead before retrying.", "error")
     return redirect(url_for("admin.detail", public_id=public_id), code=303)
 
 

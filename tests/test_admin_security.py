@@ -15,7 +15,7 @@ def test_public_cannot_access_admin(client):
         assert response.location == "/admin/login"
         assert response.headers["X-Robots-Tag"] == "noindex, nofollow"
     assert b'language-gate' not in client.get("/admin/login").data
-    for action in ("status", "notes"):
+    for action in ("status", "notes", "retry-email"):
         assert client.post("/admin/leads/unknown/" + action, data={}).status_code == 302
 
 

@@ -89,10 +89,17 @@ def contact():
         session["booking_lead"] = lead.public_id
         session["booking_until"] = int(datetime.now(timezone.utc).timestamp()) + 1800
         try:
-            lead.email_status = mail.notify_lead(lead)
+            lead.email_status = mail.notify_lead(
+                lead, idempotency_key=f"lead-intake/{lead.public_id}"
+            )
+        except mail.MailDeliveryError as exc:
+            lead.email_status = "failed"
+            current_app.logger.warning("Lead notification failed via provider=%s reason=%s; saved lead retained",
+                                       current_app.config["MAIL_PROVIDER"], exc.category)
         except Exception:
             lead.email_status = "failed"
-            current_app.logger.warning("Lead email notification failed; saved lead retained.")
+            current_app.logger.warning("Lead notification failed via provider=%s reason=unknown; saved lead retained",
+                                       current_app.config["MAIL_PROVIDER"])
         try:
             db.session.commit()
         except SQLAlchemyError:

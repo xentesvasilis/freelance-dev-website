@@ -44,12 +44,15 @@ Configure these on the **web service**. Values marked secret belong in Railway's
 | BASE_URL | No | Exact `https://<generated-staging-domain>` origin, no path/query | Railway web Networking > Generate Domain |
 | TRUSTED_HOSTS | No | `<generated-staging-domain>,healthcheck.railway.app`; hostnames only, no wildcard | Generated hostname plus Railway probe host |
 | TRUST_RAILWAY_PROXY | No | `true` only for the edge-only ingress described below; default false | Explicit reviewed ingress setting |
-| MAIL_ENABLED | No | `false` initially; `true` only for authorized SMTP tests with supported plan | Deployment choice |
-| MAIL_HOST | No | `smtp.gmail.com` for existing Gmail integration | Mail provider |
-| MAIL_PORT | No | `587` for STARTTLS; existing code also supports 465 implicit TLS | Mail provider |
-| MAIL_USE_TLS | No | `true` for Gmail STARTTLS | Mail provider |
-| MAIL_ADDRESS | No (private account identifier) | SMTP login, sender and recipient; set the intended staging mailbox explicitly | Owner's selected mailbox |
-| MAIL_APP_PASSWORD | Yes | Gmail App Password; omit/blank while mail disabled | Owner's Google account security settings |
+| MAIL_ENABLED | No | `true` to send; `false` disables notifications without credentials | Deployment choice |
+| MAIL_PROVIDER | No | Explicit `resend` for Railway Trial/Free/Hobby; `smtp` for local or SMTP-capable hosting | Set explicitly; never inferred from credentials |
+| MAIL_ADDRESS | Account identifier | `xentesvasilis@gmail.com` notification recipient | Set explicitly on the Railway web service |
+| RESEND_API_KEY | Yes | Required for enabled Resend; HTTPS bearer credential, never logged | Resend dashboard, stored as Railway secret |
+| RESEND_FROM_ADDRESS | No | Verified sender identity; e.g. `Website Leads <onboarding@resend.dev>` for initial testing or a verified domain sender | Resend sender/domain configuration |
+| MAIL_HOST | No | SMTP alternative only; `smtp.gmail.com` | Mail provider |
+| MAIL_PORT | No | SMTP alternative only; `587` STARTTLS or `465` implicit TLS | Mail provider |
+| MAIL_USE_TLS | No | SMTP alternative only; `true` for STARTTLS | Mail provider |
+| MAIL_APP_PASSWORD | Yes | SMTP alternative only; Gmail App Password | Mail account security / Railway secret |
 | CALENDLY_SCHEDULING_URL | No | Blank initially; later HTTPS calendly.com event URL | Owner's selected staging/test event |
 | PORT | No | Gunicorn listener; normally do not set manually | Railway injects this runtime value |
 
@@ -86,19 +89,33 @@ There was no existing ProxyFix configuration. Opt-in `TRUST_RAILWAY_PROXY=true` 
 
 This is an ingress trust boundary, not header authentication. Enable only when the public path is Railway's HTTPS edge and direct untrusted access to the Gunicorn socket is impossible. Do not add a TCP proxy for the web port; only trusted services may access it over the private network. Do not put another CDN/proxy in front without reviewing the topology. Verify on the actual staging edge that injected X-Real-IP/X-Forwarded-Proto values are replaced and two real clients have separate rate buckets. Local tests verify adapter behavior, not Railway's sanitization. If that verification fails, stop and correct ingress; do not guess hop counts or disable secure cookies/CSRF.
 
-## Gmail and Calendly
+## Lead notification delivery and recovery
 
-The existing SMTP implementation supports Gmail STARTTLS on 587 and implicit TLS on 465 with certificate validation and a 10-second socket timeout. **Railway SMTP currently requires Pro or above**; Free/Trial/Hobby block it. First staging can run with MAIL_ENABLED=false. Full Gmail verification is blocked until the chosen plan permits SMTP and the owner supplies a staging mailbox App Password. No email-provider rewrite is included. After changing plan, Railway requires redeployment for SMTP availability. [Outbound networking policy](https://docs.railway.com/networking/outbound-networking).
+Railway Free/Trial/Hobby blocks outbound SMTP. For this live service, configure the web service explicitly with:
 
-Later, explicitly authorize a real test, enable/configure mail, then run inside the staging container:
+| Variable | Value/source |
+| --- | --- |
+| `MAIL_ENABLED` | `true` |
+| `MAIL_PROVIDER` | `resend` |
+| `MAIL_ADDRESS` | Notification recipient chosen by the owner |
+| `RESEND_API_KEY` | Private API key from Resend, entered only in Railway's secret variable UI |
+| `RESEND_FROM_ADDRESS` | Sender configured/verified in Resend; for initial testing `Website Leads <onboarding@resend.dev>` is supported subject to Resend account sending restrictions |
+
+SMTP variables are not required for Resend and can be unset/ignored. The provider never falls back automatically. `MAIL_PROVIDER` defaults to SMTP solely for backwards-compatible local development; production should explicitly set Resend. The HTTPS transport uses Python's standard library, sends a text and escaped HTML body, fixes From to the configured Resend identity and sets Reply-To to the validated client address. `sent` means Resend accepted the API request, not that the recipient's mailbox ultimately received it. Investigate final delivery/bounce state in Resend and Gmail.
+
+The existing Lead notification flow commits the Lead before calling a provider. A failed/disabled API call changes only its notification status; it never deletes the Lead. After adding the variables and deploying the new code, run the provider-selecting CLI smoke test from the web service environment:
 
 ```sh
 python -m flask --app wsgi mail-smoke-test
 ```
 
-Confirm actual receipt, then verify notification and stored email status for one synthetic lead. Do not put the App Password in command arguments or print the environment. No real mail was sent during preparation.
+It sends one harmless real email when enabled, so do this manually after verifying the recipient and sender. The command reports provider and success/failure only; it never prints credentials.
 
-CALENDLY_SCHEDULING_URL remains environment-configured and restricted to HTTPS calendly.com URLs. Later manually verify the selected event, booking-page embed/direct link, mobile layout, timezone and intended prefill with synthetic data. Creating a booking is a separate manual action. Automated tests must not contact Calendly.
+Then recover existing failed notifications individually: **Admin → Leads → open each failed Lead → Retry notification**. Retry sends the existing stored Lead and does not create/update the Lead submission or its status. Never bulk-change `email_status`; it becomes `sent` only after Resend accepts a retry. The retry action is admin-authenticated, POST/CSRF protected, row-locked on PostgreSQL and sends a signed request idempotency key to Resend to prevent duplicate processing of repeated submissions of the same form. Resend keeps idempotency keys for 24 hours. SMTP has no equivalent provider idempotency; a network timeout after remote acceptance can leave an ambiguous result. Even Resend API acceptance is not final mailbox delivery.
+
+SMTP remains available for local development and Railway Pro+ if deliberately selected. Its Gmail STARTTLS/implicit-TLS settings are alternatives, not required Resend variables. No new client-facing project-status mail was added.
+
+CALENDLY_SCHEDULING_URL remains environment-configured and restricted to HTTPS calendly.com URLs. Booking routes/tests do not call Calendly. No Resend or other external provider is contacted by automated tests.
 
 ## First admin
 
@@ -130,7 +147,7 @@ Use synthetic submissions only. `/health` is public by design; configure staging
 8. English public pages work with the same checks.
 9. Submit one clearly synthetic test lead with valid CSRF and consent.
 10. Verify that lead in PostgreSQL/admin, including Unicode, status and notes persistence across a web restart.
-11. Verify Gmail notification: only after SMTP-capable plan/configuration and explicit authorization; confirm receipt and stored sent status. Mark blocked if mail remains disabled.
+11. Verify email notification: with MAIL_PROVIDER=resend, explicitly run the harmless provider smoke-test, confirm the test message arrives, submit one synthetic Lead, and check Resend acceptance plus the notification. Check final delivery separately; acceptance is not mailbox delivery.
 12. Verify Calendly booking page and direct link using the intended event; do not create an unintended real booking.
 13. Verify Redis-backed rate limiting: reach a controlled login/contact 429, verify a second real client has a separate bucket, and ensure forged forwarded headers cannot reset limits. Check shared Redis behavior after web restart; do not flush shared keys.
 14. Verify sitemap.xml contains only the staging BASE_URL and correct bilingual URLs.
@@ -143,10 +160,10 @@ Use synthetic submissions only. `/health` is public by design; configure staging
 
 ## Verification and remaining boundaries
 
-Final local results: **118 passed in 14.20 seconds**, including 13 new Railway configuration/health/proxy checks, existing configuration/migration tests, template endpoint/internal link/asset scans and route checks. `compileall` passed for app, migrations, scripts, tests, wsgi.py, run.py and gunicorn.conf.py. `pip check` reported no broken requirements. `git diff --check` passed. SHA-256 comparisons confirmed the real `.env` and `instance/site.db` unchanged; no hashes or secrets were displayed.
+Final local results after Resend/retry changes: **190 passed**, including mocked Resend/SMTP, Lead persistence, retry authorization/CSRF/idempotency, existing CRM/public/Calendly tests, fresh and incremental migrations, production configuration, and template endpoint scans. `compileall` passed for app, migrations, scripts, tests, wsgi.py, run.py and gunicorn.conf.py. `pip check` reported no broken requirements. `git diff --check` passed. No migration was added and no external service was contacted.
 
-Local automated configuration/health/proxy tests supplement the previous live PostgreSQL/Redis verification. All automated sockets, DNS resolution and SMTP are blocked; no Railway, Gmail or Calendly account/API was used. Gunicorn is Linux-only and is not executed in the Windows virtual environment; its configuration is exercised locally, and actual Railpack/Gunicorn startup remains a first cloud deployment check.
+Local automated configuration/health/proxy tests supplement the previous live PostgreSQL/Redis verification. All automated sockets, DNS resolution and SMTP and Resend API calls are mocked/blocked; no Railway, Gmail, Resend or Calendly account/API was used. Gunicorn is Linux-only and is not executed in the Windows virtual environment; its configuration is exercised locally, and actual Railpack/Gunicorn startup remains a first cloud deployment check.
 
-Before staging: review/push only intended files after separate authorization, select the Railway project/plan, provision the three services, enter fresh variables/references, generate the domain, configure the exact deployment settings and verify the ingress assumptions. Gmail is optional for the first mail-disabled deployment but mandatory for completing its smoke-test item.
+Before staging: review/push only intended files after separate authorization, select the Railway project/plan, provision the three services, enter fresh variables/references, generate the domain, configure the exact deployment settings and verify the ingress assumptions. Configure Resend and manually run the harmless email smoke test after verifying the sender and recipient.
 
-Before public go-live: complete the cloud checklist, edge spoofing/multiple-client checks, SMTP/Calendly manual checks, TLS/network review, legal approval, backups/restore, monitoring and ownership. Local success is not proof of these cloud checks. Nothing has been deployed by this preparation.
+Before public go-live: complete the cloud checklist, edge spoofing/multiple-client checks, Resend delivery/Calendly manual checks, TLS/network review, legal approval, backups/restore, monitoring and ownership. Local success is not proof of these cloud checks. Nothing has been deployed by this preparation.

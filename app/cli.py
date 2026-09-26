@@ -51,14 +51,14 @@ def register_cli(app):
 
     @app.cli.command("mail-smoke-test")
     def mail_smoke_test():
-        """Explicitly send a harmless SMTP test from/to MAIL_ADDRESS."""
+        """Explicitly send a harmless test using MAIL_PROVIDER."""
         if not app.config["MAIL_ENABLED"]:
-            raise click.ClickException("Set MAIL_ENABLED=true and configure SMTP first")
+            raise click.ClickException("Email is disabled; configure MAIL_ENABLED and the selected provider first")
         message = EmailMessage()
-        message["Subject"] = "Freelance website SMTP test"
+        message["Subject"] = "Freelance website delivery test"
         message.set_content("This is a configuration test. No customer information is included.")
         try:
             send_message(message)
         except Exception:
-            raise click.ClickException("SMTP test failed. Check host, TLS, port and credentials privately.") from None
-        click.echo("SMTP test sent successfully.")
+            raise click.ClickException(f"Email test failed via provider={app.config['MAIL_PROVIDER']}. Check its configuration privately.") from None
+        click.echo(f"Email test accepted via provider={app.config['MAIL_PROVIDER']}.")
