@@ -1,5 +1,9 @@
 # Production readiness audit
 
+Update, 26 September 2026: see [STAGING_VERIFICATION.md](STAGING_VERIFICATION.md) for the current Git audit, 105-test result, interactive admin email command and Docker/live-service blockers. The dated findings below record the earlier audit state.
+
+Update, 26 September 2026: see [STAGING_VERIFICATION.md](STAGING_VERIFICATION.md) for the current Git audit, 105-test result, interactive admin email command and Docker/live-service blockers. The dated findings below record the earlier audit state.
+
 Audit date: 25 September 2026. Scope: this project only. No deployment, production database mutation, live SMTP or Calendly calls were performed. Real `.env` was not modified. Existing live integrations were reported working by the owner; this audit does not independently certify them.
 
 ## TEST RESULT

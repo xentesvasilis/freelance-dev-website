@@ -41,6 +41,19 @@ def test_debug_environment_rejected(monkeypatch):
         production(monkeypatch)
 
 
+def test_production_redis_failure_has_no_memory_fallback(monkeypatch):
+    from app.extensions import limiter
+    app = production(monkeypatch)
+    assert app.config["RATELIMIT_IN_MEMORY_FALLBACK_ENABLED"] is False
+    assert app.config["RATELIMIT_SWALLOW_ERRORS"] is False
+    with app.app_context():
+        assert limiter.storage.__class__.__name__ == "RedisStorage"
+        def unavailable(*args, **kwargs):
+            raise ConnectionError("simulated Redis failure")
+        monkeypatch.setattr(limiter.storage, "incr", unavailable)
+        assert app.test_client().get("/", base_url="https://example.com").status_code == 500
+
+
 def test_missing_environment_secret(monkeypatch):
     monkeypatch.delenv("SECRET_KEY")
     with pytest.raises(ValueError, match="SECRET_KEY"):
@@ -95,5 +108,5 @@ def test_existing_development_session_rejected(app, client):
     assert client.post("/admin/login", data={"username": "dev-admin", "password": "dev-only-change-before-launch"}).status_code == 303
     app.config["PRODUCTION"] = True
     assert client.get("/admin").status_code == 302
-    result = app.test_cli_runner().invoke(args=["create-admin", "--username", "dev-admin", "--password", "long-testing-password"])
+    result = app.test_cli_runner().invoke(args=["create-admin"], input="dev-admin\n")
     assert result.exit_code != 0

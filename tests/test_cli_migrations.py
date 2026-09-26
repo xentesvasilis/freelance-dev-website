@@ -43,12 +43,18 @@ def test_smoke_test_disabled_and_mocked(app, monkeypatch):
 
 def test_create_admin(app):
     runner = app.test_cli_runner()
-    result = runner.invoke(args=["create-admin", "--username", "owner", "--password", "long-test-password-only"])
+    result = runner.invoke(args=["create-admin"], input="Owner@example.com\nlong-test-password-only\nlong-test-password-only\n")
     assert result.exit_code == 0
+    assert "Admin email" in result.output
+    assert "Repeat for confirmation" in result.output
+    assert "long-test-password-only" not in result.output
     with app.app_context():
-        user = db.session.scalar(db.select(Admin).where(Admin.username == "owner"))
+        user = db.session.scalar(db.select(Admin).where(Admin.username == "owner@example.com"))
         assert user.check_password("long-test-password-only")
-    assert runner.invoke(args=["create-admin", "--username", "owner", "--password", "long-test-password-only"]).exit_code != 0
+        assert user.password_hash != "long-test-password-only"
+    result = runner.invoke(args=["create-admin"], input="OWNER@example.com\n")
+    assert result.exit_code != 0
+    assert "already exists" in result.output
 
 
 def test_migrations_empty_sqlite_upgrade_downgrade(tmp_path):

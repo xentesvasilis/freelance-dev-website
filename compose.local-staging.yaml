@@ -1,0 +1,31 @@
+# LOCAL STAGING ONLY. Never use this setup or its generated credentials in production.
+# Always pass --env-file .env.local-staging so Compose never loads the real .env.
+name: freelance-local-staging
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: local_staging
+      POSTGRES_DB: local_staging
+      POSTGRES_PASSWORD: ${LOCAL_STAGING_DB_PASSWORD:?Run staging_verify.py --prepare first}
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U local_staging -d local_staging"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

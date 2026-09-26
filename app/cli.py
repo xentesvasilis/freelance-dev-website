@@ -1,6 +1,8 @@
 from email.message import EmailMessage
+import re
 
 import click
+from email_validator import EmailNotValidError, validate_email
 
 from .extensions import db
 from .mail import send_message
@@ -23,18 +25,24 @@ def register_cli(app):
         click.echo("Development admin created. See README for development-only credentials.")
 
     @app.cli.command("create-admin")
-    @click.option("--username", prompt=True)
-    @click.password_option(confirmation_prompt=True)
-    def create_admin(username, password):
-        """Create an admin using a hidden password prompt."""
-        if app.config["PRODUCTION"] and username == "dev-admin":
-            raise click.ClickException("The development username is prohibited in production")
-        if not 1 <= len(username) <= 120 or len(password) < 16 or len(password) > 256:
-            raise click.ClickException("Use a username up to 120 characters and a password of 16–256 characters")
+    def create_admin():
+        """Create an admin interactively; use the email as the login username."""
+        email = click.prompt("Admin email", type=str).strip()
+        try:
+            username = validate_email(email, check_deliverability=False).normalized.lower()
+        except EmailNotValidError:
+            raise click.ClickException("Enter a valid admin email address") from None
+        if len(username) > 120:
+            raise click.ClickException("Admin email must be at most 120 characters")
         if db.session.scalar(db.select(Admin).where(Admin.username == username)):
-            raise click.ClickException("Username already exists")
-        if password == "dev-only-change-before-launch":
-            raise click.ClickException("Do not use the documented development password")
+            raise click.ClickException("Admin already exists")
+        password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
+        normalized = re.sub(r"[^a-z0-9]", "", password.lower())
+        if not 16 <= len(password) <= 256:
+            raise click.ClickException("Use a password of 16–256 characters")
+        if (len(set(password)) < 5 or normalized.isdigit() or normalized.startswith(("password", "changeme", "admin", "default", "development", "devonly", "qwerty", "letmein", "welcome", "testpassword", "abcdef", "0123456789"))
+                or normalized == username.split("@")[0]):
+            raise click.ClickException("Choose a unique password, not a default or development password")
         admin = Admin(username=username)
         admin.set_password(password)
         db.session.add(admin)

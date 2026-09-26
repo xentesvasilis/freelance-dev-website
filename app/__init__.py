@@ -89,7 +89,8 @@ def create_app(test_config=None):
             raise ValueError("Debug is prohibited in production")
         app.config.update(DEBUG=False, SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True,
                           SESSION_COOKIE_SAMESITE="Lax", WTF_CSRF_ENABLED=True,
-                          RATELIMIT_ENABLED=True, PROPAGATE_EXCEPTIONS=False)
+                          RATELIMIT_ENABLED=True, RATELIMIT_IN_MEMORY_FALLBACK_ENABLED=False,
+                          RATELIMIT_SWALLOW_ERRORS=False, PROPAGATE_EXCEPTIONS=False)
         if not app.config["SECRET_KEY"] or len(app.config["SECRET_KEY"]) < 32:
             raise ValueError("Production requires a strong SECRET_KEY of at least 32 characters")
         if base.scheme != "https" or not app.config["TRUSTED_HOSTS"]:
