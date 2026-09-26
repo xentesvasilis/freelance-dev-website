@@ -65,7 +65,7 @@ def test_migrations_empty_sqlite_upgrade_downgrade(tmp_path):
     assert result.exit_code == 0, result.output
     with app.app_context():
         inspector = inspect(db.engine)
-        assert {"admin", "lead", "portfolio_project", "alembic_version"}.issubset(inspector.get_table_names())
+        assert {"admin", "lead", "portfolio_project", "project_case", "alembic_version"}.issubset(inspector.get_table_names())
         assert {"public_id", "email_status", "privacy_accepted_at", "requirements_json"}.issubset({c["name"] for c in inspector.get_columns("lead")})
     result = runner.invoke(args=["db", "check"])
     assert result.exit_code == 0, result.output

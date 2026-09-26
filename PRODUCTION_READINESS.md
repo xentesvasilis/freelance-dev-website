@@ -83,7 +83,7 @@ No prominent/public admin navigation links. Authentication gates dashboard/leads
 
 - Complete and approve all bilingual legal/business placeholders and privacy version.
 - Provision the actual host/domain/HTTPS, PostgreSQL and shared Redis; inject fresh secrets.
-- Verify trusted proxy client-IP and HTTPS scheme handling against the actual topology. Current app intentionally trusts no forwarded headers; incorrect proxy setup can group rate limits or break secure CSRF. Restrict direct WSGI access.
+- Verify trusted proxy client-IP and HTTPS scheme handling against the actual topology. Forwarded headers are ignored by default; Railway has an explicit opt-in adapter documented in RAILWAY_DEPLOYMENT.md; incorrect proxy setup can group rate limits or break secure CSRF. Restrict direct WSGI access.
 - Run live PostgreSQL migration/CRUD/restore checks and Linux WSGI smoke tests in staging.
 - Verify Gmail/Calendly and the complete lead/admin flow on staging under production HTTPS/CSP.
 - Inspect the actual release Git index/history for secrets and run a current dependency vulnerability advisory scan. `pip check` is compatibility verification, not a vulnerability audit. Requirements use version ranges; retain an exact tested release dependency snapshot.
@@ -94,3 +94,11 @@ No prominent/public admin navigation links. Authentication gates dashboard/leads
 Follow all 13 items in README's PRODUCTION DEPLOYMENT CHECKLIST, including explicit migrations, secure admin creation, domain/HTTPS, integration smoke tests, backups and monitoring. No deployment has been performed or authorized by this audit.
 
 Reference guidance checked: [Flask deployment](https://flask.palletsprojects.com/en/stable/deploying/), [Flask configuration](https://flask.palletsprojects.com/en/stable/config/), [trusted proxies](https://flask.palletsprojects.com/en/stable/deploying/proxy_fix/), [SQLAlchemy pooling](https://docs.sqlalchemy.org/en/20/core/pooling.html).
+
+## Private CRM change: release prerequisite
+
+The owner reports the existing Railway website is live. The new ProjectCase CRM is a local, undeployed extension; no Railway access or live-data migration was performed. Revision `c8a4e291d630` adds only project_case with a unique nullable Lead FK, random public IDs, workflow/priority/currency/price/date constraints and operational indexes. Apply it through the existing pre-deploy `python -m flask --app wsgi db upgrade` command before serving the updated admin dashboard, and confirm head/no drift afterward.
+
+Local tests cover fresh migration and preservation of populated Admin/Lead/PortfolioProject records when upgrading the prior revision, as well as PostgreSQL-compatible SQL. Review actual Railway backup/restore readiness before release. Keep the additive table if rolling back application code; downgrade removes its project data. See [PROJECT_CRM.md](PROJECT_CRM.md). Existing SMTP, Calendly, pricing, public SEO and production configuration were not changed for CRM. ProjectCase never automatically becomes a PortfolioProject.
+
+CRM verification: 168 tests passed, including existing Lead/Gmail/Calendly/public behavior, new auth/CSRF/privacy/money/conversion/concurrency/milestone checks and both fresh/populated-schema migration tests. compileall, pip check, PostgreSQL migration SQL and template/route checks passed. No cloud execution is claimed.

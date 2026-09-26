@@ -1,0 +1,27 @@
+{% extends 'admin/layout.html' %}
+{% block admin_content %}
+<p><a class="button" href="{{ url_for('admin.project_new') }}">{{ crm('New project') }}</a></p>
+<form method="get" action="{{ url_for('admin.projects') }}" class="project-filters">
+  <div class="field"><label for="q">{{ crm('Search') }}</label><input id="q" name="q" value="{{ filters.q }}" maxlength="200"></div>
+  {% for name, choices in [('status',project_statuses),('industry',industries),('priority',project_priorities)] %}
+  <div class="field"><label for="filter-{{ name }}">{{ crm(name|title) }}</label><select id="filter-{{ name }}" name="{{ name }}"><option value="">{{ crm('All') }}</option>{% for value in choices %}<option value="{{ value }}" {% if filters[name] == value %}selected{% endif %}>{{ crm(value) if name != 'industry' else value }}</option>{% endfor %}</select></div>
+  {% endfor %}
+  <button class="button button-outline" type="submit">{{ crm('Filter') }}</button>
+</form>
+<div class="table-scroll" tabindex="0" role="region" aria-label="{{ crm('Projects') }}">
+<table><caption>{{ crm('Projects') }} · {{ rows.total }}</caption><thead><tr>
+{% for label in ['Title','Client','Industry','Package','Quoted price (EUR)','Status','Priority','Target delivery','Updated'] %}<th scope="col">{{ crm(label) }}</th>{% endfor %}
+</tr></thead><tbody>
+{% for project in rows.items %}<tr>
+<td><a href="{{ url_for('admin.project_detail', public_id=project.public_id) }}">{{ project.title }}</a></td>
+<td>{{ project.client_name }}{% if project.company %}<br>{{ project.company }}{% endif %}</td>
+<td>{{ project.industry or '—' }}</td><td>{{ project.package_name or '—' }}</td><td>{{ project.quoted_price_display }}</td>
+<td><span class="status-badge status-{{ project.status }}">{{ crm(project.status) }}</span></td><td>{{ crm(project.priority) }}</td>
+<td>{{ project.target_delivery_date or '—' }}</td><td>{{ project.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+</tr>{% else %}<tr><td colspan="9">{{ crm('No projects found.') }}</td></tr>{% endfor %}
+</tbody></table></div>
+<nav class="actions" aria-label="Pagination">
+{% if rows.has_prev %}<a href="{{ url_for('admin.projects', page=rows.prev_num, **filters) }}">{{ crm('Previous') }}</a>{% endif %}
+{% if rows.has_next %}<a href="{{ url_for('admin.projects', page=rows.next_num, **filters) }}">{{ crm('Next') }}</a>{% endif %}
+</nav>
+{% endblock %}

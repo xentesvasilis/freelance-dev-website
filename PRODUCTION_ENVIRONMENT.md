@@ -20,7 +20,7 @@ Inspected against application code and Flask CLI usage on 26 September 2026. All
 | `CALENDLY_SCHEDULING_URL` | HTTPS calendly.com event; blank shows alternatives | No | `https://calendly.com/<account>/<event>` | Owner's event |
 | `FLASK_SKIP_DOTENV` | Flask CLI setting: prevent automatic local dotenv loading | No | `1` | Production command environment |
 
-There is **no REDIS_URL variable used by this app**. Set RATELIMIT_STORAGE_URI. Production explicitly disables in-memory fallback and error swallowing; Redis failure returns an error. Flask config keys such as RATELIMIT_ENABLED are not exposed as environment settings by the application.
+The app accepts `REDIS_URL` (secret when authenticated) from the Redis provider. A nonempty `RATELIMIT_STORAGE_URI` overrides it; otherwise REDIS_URL is used. Leave the override unset on Railway. `TRUST_RAILWAY_PROXY` (nonsecret, default false) enables the documented Railway-only edge adapter; see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for its trust boundary and exact settings. Production explicitly disables in-memory fallback and error swallowing; Redis failure returns an error. Flask config keys such as RATELIMIT_ENABLED are not exposed as environment settings by the application.
 
 Inject FLASK_ENV=production before startup and FLASK_SKIP_DOTENV=1 for CLI commands. The factory then skips its `.env` load. Local development permits ignored `.env`, an environment-supplied signing key and SQLite default when DATABASE_URL is blank. Never copy local credentials/databases to production. URL-encode credentials in connection URLs.
 

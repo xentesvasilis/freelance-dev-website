@@ -106,9 +106,9 @@ def verify():
                 result = runner.invoke(args=args)
                 assert result.exit_code == 0, "Migration command failed"
             with application.app_context():
-                assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "784018745121"
+                assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "c8a4e291d630"
                 inspector = inspect(db.engine)
-                assert {"admin", "lead", "portfolio_project", "alembic_version"} <= set(inspector.get_table_names())
+                assert {"admin", "lead", "portfolio_project", "project_case", "alembic_version"} <= set(inspector.get_table_names())
                 assert {"ix_lead_status", "ix_lead_created_at"} <= {v["name"] for v in inspector.get_indexes("lead")}
                 assert "valid_lead_status" in {v["name"] for v in inspector.get_check_constraints("lead")}
                 assert any(v["column_names"] == ["public_id"] for v in inspector.get_unique_constraints("lead"))

@@ -186,3 +186,13 @@ Windows production alternative:
 ```
 
 This is a server start command, not complete proxy configuration. Follow [Flask production deployment guidance](https://flask.palletsprojects.com/en/stable/deploying/) and [trusted proxy guidance](https://flask.palletsprojects.com/en/stable/deploying/proxy_fix/) for the selected host. Database pooling uses pre-ping to detect stale connections; see [SQLAlchemy connection pooling](https://docs.sqlalchemy.org/en/20/core/pooling.html).
+
+## Railway staging preparation
+
+See [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for the reviewed GitHub/Railpack setup, `gunicorn wsgi:app`, `/health`, pre-deploy migrations, service references and the 20-step cloud smoke checklist. No cloud deployment has been performed. Railway uses the opt-in proxy settings described there; generic host commands above are not Railway settings.
+
+## Private project CRM
+
+Authenticated admins can now use Dashboard / Leads / Projects to convert an enquiry into a private ProjectCase or create one manually for referrals/Calendly-only clients. Conversion requires confirmation, is idempotent, and preserves the original Lead and its status. Project milestones, quotes in integer EUR cents, priorities, target dates and private notes remain separate from public PortfolioProject case studies. No project is automatically published or emailed.
+
+See [PROJECT_CRM.md](PROJECT_CRM.md) for workflow, routes, validation and privacy boundaries. Apply the additive `c8a4e291d630` migration using the existing `python -m flask --app wsgi db upgrade` pre-deploy command before serving the updated admin dashboard. This repository change has not been deployed; existing Gmail, Calendly and public flows are preserved.

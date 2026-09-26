@@ -1,1 +1,11 @@
-{% extends 'admin/layout.html' %}{% block admin_content %}<div class="stats-grid"><article><span>Total leads</span><strong>{{ total }}</strong></article>{% for status in ['new','contacted','qualified','won'] %}<article><span>{{ status|title }}</span><strong>{{ counts.get(status, 0) }}</strong></article>{% endfor %}</div><p><a class="button" href="{{ url_for('admin.leads') }}">Review leads →</a></p>{% endblock %}
+{% extends 'admin/layout.html' %}{% block admin_content %}<div class="stats-grid"><article><span>Total leads</span><strong>{{ total }}</strong></article>{% for status in ['new','contacted','qualified','won'] %}<article><span>{{ status|title }}</span><strong>{{ counts.get(status, 0) }}</strong></article>{% endfor %}</div><p><a class="button" href="{{ url_for('admin.leads') }}">Review leads →</a></p><h2>{{ crm('Projects') }}</h2>
+<div class="stats-grid">
+<article><span>{{ crm('Active projects') }}</span><strong data-metric="active">{{ active_projects }}</strong></article>
+<article><span>{{ crm('Proposals') }}</span><strong data-metric="proposals">{{ project_counts.get('proposal',0) + project_counts.get('proposal_sent',0) }}</strong></article>
+{% for status in ['in_development','testing','delivered','maintenance'] %}<article><span>{{ crm(status) }}</span><strong data-metric="{{ status }}">{{ project_counts.get(status,0) }}</strong></article>{% endfor %}
+</div><p><a class="button" href="{{ url_for('admin.projects') }}">{{ crm('Projects') }}</a> <a class="button button-outline" href="{{ url_for('admin.project_new') }}">{{ crm('New project') }}</a></p>
+<h2>{{ crm('Projects requiring attention') }}</h2>
+<ul class="project-attention">{% for project in attention %}<li><a href="{{ url_for('admin.project_detail', public_id=project.public_id) }}">{{ project.title }}</a> <span class="status-badge">{{ crm(project.status) }}</span>
+{% if project.target_delivery_date %}<span>{{ project.target_delivery_date }}{% if project.target_delivery_date < today %} &middot; {{ crm('Overdue') }}{% elif (project.target_delivery_date - today).days <= 7 %} &middot; {{ crm('Due within 7 days') }}{% endif %}</span>{% endif %}</li>
+{% else %}<li>{{ crm('No projects requiring attention.') }}</li>{% endfor %}</ul>
+{% endblock %}

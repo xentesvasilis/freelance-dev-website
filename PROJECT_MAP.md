@@ -6,17 +6,17 @@
 wsgi.py                        WSGI entry point
 app/__init__.py                Factory, environment, headers, error handling
 app/extensions.py              SQLAlchemy, Migrate, CSRF, Limiter
-app/models.py                  Admin, Lead, PortfolioProject
+app/models.py                  Admin, Lead, ProjectCase, PortfolioProject
 app/forms.py                   Localized lead validation and admin forms
 app/public.py                  Public pages, language, lead save, booking, SEO
-app/admin.py                   Authentication, dashboard, paginated lead workflow
+app/admin.py                   Authentication, dashboard, lead workflow and private project CRM
 app/mail.py                    Escaped multipart notifications and TLS SMTP
 app/cli.py                     seed-dev, create-admin, mail-smoke-test
 app/content.py                 EN/EL copy, choices, pricing, SEO descriptions
 app/legal.py                   Original bilingual legal drafts and placeholders
 app/templates/                Shared Jinja layout, pages, components, admin
 app/static/                   Local responsive CSS, JavaScript and SVG favicon
-migrations/                   Alembic initial schema and version control
+migrations/                   Alembic initial schema plus additive ProjectCase revision
 tests/                        Public, lead, security, CLI and migration tests
 scripts/browser_check.py      Optional desktop/mobile browser validation
 artifacts/                    Local verification screenshots/report
@@ -82,3 +82,25 @@ See `.env.example` (blank secrets) and README for configuration and release guid
 7. Local SQLite migrations; PostgreSQL-compatible types/driver; HTTPS/host/shared-limit guards for production. Production is prepared, not deployed.
 8. Legal drafts explicitly identify missing business, processor, retention and tax decisions. No fake claims, testimonials, clients or performance metrics.
 9. Test databases and browser artifacts remain within the project root; all SMTP is blocked or mocked in tests.
+
+## Private CRM extension
+
+- `app/models.py`: ProjectCase, status/priority constants, first-milestone timestamps, cents formatting and database constraints.
+- `app/project_forms.py`: validated manual/edit/status/conversion forms; Decimal-to-integer-cents conversion.
+- `app/crm.py`: Greek/English CRM labels.
+- `app/templates/admin/projects.html`, `project_detail.html`, `project_form.html`, `_project_fields.html`: private project UI within the existing admin layout.
+- `migrations/versions/c8a4e291d630_add_project_case.py`: additive table/index/constraint migration from 784018745121.
+- `tests/test_projects.py`, `tests/test_project_migrations.py`: workflow, concurrency, privacy, money and schema preservation checks.
+
+ProjectCase contains a random public ID, optional unique source Lead reference, client/contact/scope fields, EUR quote in cents, freeform package, constrained status/priority, optional target dates, first-reached milestone timestamps and private notes. It has no publication fields or relationship to PortfolioProject.
+
+| Additional route | Methods | Purpose |
+| --- | --- | --- |
+| `/admin/projects` | GET | Authenticated list/search/filter |
+| `/admin/projects/new` | GET, POST | Manual creation |
+| `/admin/projects/<public_id>` | GET | Detail/timeline/edit forms |
+| `/admin/projects/<public_id>/edit` | POST | Authorized validated changes |
+| `/admin/projects/<public_id>/status` | POST | First-milestone-aware status update |
+| `/admin/leads/<public_id>/convert` | POST | Confirmed idempotent private project creation |
+
+The admin dashboard retains Lead metrics and adds project metrics/attention queries. No public route, booking automation or email flow is added. See [PROJECT_CRM.md](PROJECT_CRM.md) for lifecycle and release requirements. The public website is reported live by the owner; this CRM extension remains local and undeployed.

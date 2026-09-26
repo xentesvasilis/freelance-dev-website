@@ -10,6 +10,7 @@ from flask import Flask, g, render_template, request, session
 from flask_wtf.csrf import CSRFError
 from sqlalchemy.engine import make_url
 from email_validator import validate_email, EmailNotValidError
+from werkzeug.exceptions import SecurityError
 
 from .extensions import csrf, db, limiter, migrate
 
@@ -71,7 +72,8 @@ def create_app(test_config=None):
         MAIL_ADDRESS=os.getenv("MAIL_ADDRESS", "xentesvasilis@gmail.com"),
         MAIL_APP_PASSWORD=os.getenv("MAIL_APP_PASSWORD", ""),
         CALENDLY_SCHEDULING_URL=os.getenv("CALENDLY_SCHEDULING_URL", ""),
-        RATELIMIT_STORAGE_URI=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+        RATELIMIT_STORAGE_URI=os.getenv("RATELIMIT_STORAGE_URI") or os.getenv("REDIS_URL") or "memory://",
+        TRUST_RAILWAY_PROXY=env_bool("TRUST_RAILWAY_PROXY", "false"),
         TRUSTED_HOSTS=[h.strip() for h in os.getenv("TRUSTED_HOSTS", "").split(",") if h.strip()] or None,
     )
     if test_config:
@@ -117,9 +119,14 @@ def create_app(test_config=None):
         if not 1 <= app.config["MAIL_PORT"] <= 65535 or (not app.config["MAIL_USE_TLS"] and app.config["MAIL_PORT"] != 465):
             raise ValueError("Mail requires a valid port and encrypted SMTP")
     Path(app.instance_path).mkdir(exist_ok=True)
+    if app.config["TRUST_RAILWAY_PROXY"]:
+        from .proxy import RailwayProxy
+        app.wsgi_app = RailwayProxy(app.wsgi_app)
 
     @app.before_request
     def language():
+        if request.endpoint == "health":
+            return
         requested = request.args.get("lang")
         if requested in ("el", "en"):
             session["language"] = requested
@@ -130,6 +137,12 @@ def create_app(test_config=None):
     migrate.init_app(app, db, render_as_batch=True)
     csrf.init_app(app)
     limiter.init_app(app)
+
+    @app.get("/health")
+    @limiter.exempt
+    def health():
+        # Process liveness only: no database, Redis, session or external calls.
+        return {"status": "ok"}, 200
 
     from .public import public
     from .admin import admin
@@ -171,6 +184,11 @@ def create_app(test_config=None):
     @app.errorhandler(CSRFError)
     def csrf_error(error):
         return render_template("error.html", code=400, message=tr("csrf_error")), 400
+
+    @app.errorhandler(SecurityError)
+    def untrusted_host(error):
+        # Host rejection has no URL adapter, so do not render linked templates.
+        return "Bad request", 400
 
     for code in (400, 403, 404, 413, 429, 500, 503):
         def handler(error, code=code):

@@ -1,0 +1,17 @@
+{{ form.hidden_tag() }}
+{% if form.errors %}<p class="error" role="alert">{{ crm('Please correct the fields below.') }}</p>{% endif %}
+<div class="project-form-grid">
+{% for field in form if field.name != 'csrf_token' %}
+  <div class="field{% if field.type == 'TextAreaField' %} project-wide{% endif %}">
+    {{ field.label }}
+    {% if field.type == 'TextAreaField' %}{{ field(rows=6, maxlength=10000, aria_describedby=field.id ~ '-error') }}
+    {% elif field.name == 'package_name' %}{{ field(list='package-options', aria_describedby=field.id ~ '-error') }}
+    {% elif field.name == 'quoted_price' %}{{ field(inputmode='decimal', placeholder='1700.50', aria_describedby=field.id ~ '-error') }}
+    {% else %}{{ field(aria_describedby=field.id ~ '-error') }}{% endif %}
+    <div id="{{ field.id }}-error">{% for error in field.errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}</div>
+  </div>
+{% endfor %}
+</div>
+<datalist id="package-options"><option value="Professional Website"><option value="Business Automation"><option value="Custom Digital Office"><option value="Custom"></datalist>
+<p class="fine-print">{{ crm('Use a nonnegative amount with at most two decimal places, e.g. 1700.50.') }}</p>
+<button class="button" type="submit">{{ crm('Save project') }}</button>

@@ -1,0 +1,26 @@
+{% extends 'admin/layout.html' %}
+{% block admin_content %}
+<h2>{{ project.title }}</h2>
+<div class="admin-detail">
+<section><h3>{{ crm('Project') }}</h3>
+<dl>{% for label,value in [('Status',crm(project.status)),('Priority',crm(project.priority)),('Package',project.package_name),('Quoted price (EUR)',project.quoted_price_display)] %}<dt>{{ crm(label) }}</dt><dd>{{ value or '—' }}</dd>{% endfor %}</dl>
+<form method="post" action="{{ url_for('admin.project_status', public_id=project.public_id) }}">
+{{ status_form.csrf_token(id='status-csrf') if status_form.csrf_token is defined }}<div class="field">{{ status_form.status.label(for='workflow-status') }}{{ status_form.status(id='workflow-status') }}</div><button class="button" type="submit">{{ crm('Update status') }}</button>
+</form>
+<h3>{{ crm('Client') }}</h3><dl>{% for label,value in [('Client name',project.client_name),('Email',project.client_email),('Phone',project.client_phone),('Company',project.company),('Industry',project.industry)] %}<dt>{{ crm(label) }}</dt><dd>{{ value or '—' }}</dd>{% endfor %}</dl>
+<h3>{{ crm('Scope') }}</h3><p class="preserve-lines">{{ project.project_summary }}</p>
+<h3>{{ crm('Internal notes') }}</h3><p class="preserve-lines">{{ project.internal_notes or '—' }}</p>
+</section>
+<section><h3>{{ crm('Timeline (UTC)') }}</h3><dl>
+<dt>{{ crm('Created') }}</dt><dd>{{ project.created_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+{% for status,field in project_milestones.items() %}<dt>{{ crm(status) }}</dt><dd>{{ project[field].strftime('%Y-%m-%d %H:%M') if project[field] else '—' }}</dd>{% endfor %}
+<dt>{{ crm('Target start') }}</dt><dd>{{ project.target_start_date or '—' }}</dd>
+<dt>{{ crm('Target delivery') }}</dt><dd>{{ project.target_delivery_date or '—' }}</dd>
+<dt>{{ crm('Updated') }}</dt><dd>{{ project.updated_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+</dl><h3>{{ crm('Source') }}</h3>
+{% if project.lead %}<a href="{{ url_for('admin.detail', public_id=project.lead.public_id) }}">{{ crm('Source lead') }}</a>{% else %}<p>{{ crm('Manual creation') }}</p>{% endif %}
+</section></div>
+<details class="project-editor"><summary>{{ crm('Edit project') }}</summary>
+<form method="post" action="{{ url_for('admin.project_edit', public_id=project.public_id) }}">{% include 'admin/_project_fields.html' %}</form>
+</details>
+{% endblock %}

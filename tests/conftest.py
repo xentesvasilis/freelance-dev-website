@@ -12,7 +12,7 @@ from app.models import Admin
 def forbid_real_smtp(monkeypatch):
     import app as application
     monkeypatch.setattr(application, "load_dotenv", lambda *args, **kwargs: None)
-    for key in ("DATABASE_URL", "FLASK_DEBUG", "TRUSTED_HOSTS", "MAIL_APP_PASSWORD"):
+    for key in ("DATABASE_URL", "FLASK_DEBUG", "TRUSTED_HOSTS", "MAIL_APP_PASSWORD", "REDIS_URL", "TRUST_RAILWAY_PROXY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in {"SECRET_KEY": "isolated-test-key-not-for-production", "FLASK_ENV": "development",
                        "MAIL_ENABLED": "false", "MAIL_USE_TLS": "true", "MAIL_PORT": "587",
@@ -25,6 +25,7 @@ def forbid_real_smtp(monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP_SSL", forbidden)
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     monkeypatch.setattr(socket, "create_connection", forbidden)
+    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
 
 
 @pytest.fixture
