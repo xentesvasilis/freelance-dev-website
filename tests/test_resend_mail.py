@@ -1,6 +1,7 @@
 import io
 import json
 import smtplib
+from email.message import EmailMessage
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 from unittest.mock import MagicMock
@@ -76,6 +77,50 @@ def test_resend_success_content_reply_to_and_from(app, monkeypatch):
         assert value in body["text"]
     assert "<strong>Name</strong><br>Test Person" in body["html"]
     assert "PRIVATE" not in body["text"] and "internal_notes" not in body
+
+
+@pytest.mark.parametrize("body_kind", ["plain", "html", "multipart"])
+def test_resend_extracts_available_body_variants(app, monkeypatch, body_kind):
+    resend_config(app)
+    message = EmailMessage()
+    message["Subject"] = "Synthetic body test"
+    if body_kind == "plain":
+        message.set_content("plain-only content")
+    elif body_kind == "html":
+        message.set_content("<p>html-only content</p>", subtype="html")
+    else:
+        message.set_content("plain multipart content")
+        message.add_alternative("<p>html multipart content</p>", subtype="html")
+    captured = {}
+    def accepted(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return FakeResponse()
+    monkeypatch.setattr(mail, "urlopen", accepted)
+    with app.app_context():
+        assert mail.send_message(message) == "sent"
+    payload = captured["body"]
+    if body_kind == "plain":
+        assert payload["text"].strip() == "plain-only content"
+        assert "html" not in payload
+    elif body_kind == "html":
+        assert payload["html"].strip() == "<p>html-only content</p>"
+        assert "text" not in payload
+    else:
+        assert payload["text"].strip() == "plain multipart content"
+        assert payload["html"].strip() == "<p>html multipart content</p>"
+
+
+def test_resend_rejects_message_without_usable_body(app, monkeypatch, caplog):
+    resend_config(app)
+    message = EmailMessage()
+    message["Subject"] = "Empty body test"
+    message.set_content("  \n  ")
+    send = MagicMock()
+    monkeypatch.setattr(mail, "urlopen", send)
+    with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
+        mail.send_message(message)
+    assert exc.value.category == "validation" and not send.called
+    assert API_KEY not in caplog.text
 
 
 @pytest.mark.parametrize("status,category", [(401, "authentication"), (403, "authentication"),
@@ -187,12 +232,12 @@ def test_public_failed_resend_keeps_committed_lead(app, client, lead_data, monke
 
 def test_cli_smoke_test_uses_mocked_resend(app, monkeypatch):
     resend_config(app, MAIL_ADDRESS="owner@example.com")
-    import app.cli as cli
-    send = MagicMock()
-    monkeypatch.setattr(cli, "send_message", send)
+    send = MagicMock(return_value=FakeResponse())
+    monkeypatch.setattr(mail, "urlopen", send)
     result = app.test_cli_runner().invoke(args=["mail-smoke-test"])
     assert result.exit_code == 0, result.output
     assert "provider=resend" in result.output and API_KEY not in result.output
-    message = send.call_args.args[0]
-    assert message["Subject"] == "Freelance website delivery test"
-    assert "No customer information" in message.get_content()
+    payload = json.loads(send.call_args.args[0].data)
+    assert payload["subject"] == "Freelance website delivery test"
+    assert "No customer information" in payload["text"]
+    assert "html" not in payload

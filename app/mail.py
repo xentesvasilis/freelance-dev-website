@@ -54,6 +54,23 @@ def _resend_category(status):
     return "provider_error"
 
 
+def _body_content(message, subtype):
+    content_type = f"text/{subtype}"
+    if message.get_content_type() == content_type:
+        part = message
+    else:
+        part = message.get_body(preferencelist=(subtype,))
+    if part is None or part.get_content_type() != content_type:
+        return None
+    try:
+        content = part.get_content()
+    except (LookupError, TypeError, ValueError):
+        return None
+    if not isinstance(content, str) or not content.strip():
+        return None
+    return content
+
+
 def _send_resend(message, idempotency_key=None):
     config = current_app.config
     sender = _safe_sender(config["RESEND_FROM_ADDRESS"])
@@ -62,9 +79,15 @@ def _send_resend(message, idempotency_key=None):
         "from": sender,
         "to": [recipient],
         "subject": str(message["Subject"]),
-        "text": message.get_body(preferencelist=("plain",)).get_content(),
-        "html": message.get_body(preferencelist=("html",)).get_content(),
     }
+    text_body = _body_content(message, "plain")
+    html_body = _body_content(message, "html")
+    if text_body is not None:
+        payload["text"] = text_body
+    if html_body is not None:
+        payload["html"] = html_body
+    if text_body is None and html_body is None:
+        raise MailDeliveryError("validation")
     reply_to = message.get("Reply-To")
     if reply_to:
         payload["reply_to"] = _safe_address(str(reply_to))
