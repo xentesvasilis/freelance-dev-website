@@ -1,12 +1,10 @@
-import io
-import json
 import smtplib
 from email.message import EmailMessage
 from types import SimpleNamespace
-from urllib.error import HTTPError, URLError
 from unittest.mock import MagicMock
 
 import pytest
+import resend
 
 from app import create_app
 from app import mail
@@ -16,22 +14,6 @@ from app.models import Lead
 
 API_KEY = "synthetic-resend-key-never-real"
 PRIVATE_BODY = "PRIVATE_LEAD_BODY_MARKER"
-
-
-class FakeResponse:
-    status = 200
-
-    def __init__(self, body=b'{"id":"email_synthetic"}'):
-        self.body = body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-    def read(self, limit=-1):
-        return self.body[:limit]
 
 
 def lead_object(**overrides):
@@ -54,19 +36,15 @@ def resend_config(app, **overrides):
 def test_resend_success_content_reply_to_and_from(app, monkeypatch):
     resend_config(app)
     captured = {}
-    def accepted(request, timeout):
-        captured["request"] = request
-        captured["timeout"] = timeout
-        return FakeResponse()
-    monkeypatch.setattr(mail, "urlopen", accepted)
+    def accepted(payload, options=None):
+        captured.update(payload=payload, options=options, api_key=resend.api_key)
+        return {"id": "email_synthetic"}
+    monkeypatch.setattr(resend.Emails, "send", accepted)
     with app.app_context():
         result = mail.notify_lead(lead_object(), idempotency_key="signed-test-retry-key")
-    req = captured["request"]
-    body = json.loads(req.data)
-    assert req.full_url == "https://api.resend.com/emails" and req.get_method() == "POST"
-    assert req.get_header("Authorization") == "Bearer " + API_KEY
-    assert req.get_header("Idempotency-key") == "signed-test-retry-key"
-    assert captured["timeout"] == 10 and result == "sent"
+    body = captured["payload"]
+    assert captured["api_key"] == API_KEY and result == "sent"
+    assert captured["options"] == {"idempotency_key": "signed-test-retry-key"}
     assert body["from"] == "Website Leads <onboarding@resend.dev>"
     assert body["from"] != lead_object().email and body["to"] == ["owner@example.com"]
     assert body["reply_to"] == "prospect@example.com"
@@ -92,10 +70,10 @@ def test_resend_extracts_available_body_variants(app, monkeypatch, body_kind):
         message.set_content("plain multipart content")
         message.add_alternative("<p>html multipart content</p>", subtype="html")
     captured = {}
-    def accepted(request, timeout):
-        captured["body"] = json.loads(request.data)
-        return FakeResponse()
-    monkeypatch.setattr(mail, "urlopen", accepted)
+    def accepted(payload, options=None):
+        captured["body"] = payload
+        return {"id": "email_synthetic"}
+    monkeypatch.setattr(resend.Emails, "send", accepted)
     with app.app_context():
         assert mail.send_message(message) == "sent"
     payload = captured["body"]
@@ -116,20 +94,25 @@ def test_resend_rejects_message_without_usable_body(app, monkeypatch, caplog):
     message["Subject"] = "Empty body test"
     message.set_content("  \n  ")
     send = MagicMock()
-    monkeypatch.setattr(mail, "urlopen", send)
+    monkeypatch.setattr(resend.Emails, "send", send)
     with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
         mail.send_message(message)
     assert exc.value.category == "validation" and not send.called
     assert API_KEY not in caplog.text
 
 
-@pytest.mark.parametrize("status,category", [(401, "authentication"), (403, "authentication"),
-    (400, "validation"), (422, "validation"), (429, "rate_limit"), (500, "provider_error")])
-def test_resend_http_failure_is_categorized_and_redacted(app, monkeypatch, caplog, status, category):
+@pytest.mark.parametrize("error,category", [
+    (resend.exceptions.InvalidApiKeyError("private API key", "invalid_api_key", 403), "authentication"),
+    (resend.exceptions.ValidationError(PRIVATE_BODY, "validation_error", 422), "validation"),
+    (resend.exceptions.RateLimitError(PRIVATE_BODY, "rate_limit_exceeded", 429), "rate_limit"),
+    (resend.exceptions.ResendError(500, "application_error", PRIVATE_BODY, "private action"), "provider_error"),
+    (resend.exceptions.ResendError(403, "application_error", "Cloudflare 1010 " + API_KEY, ""), "provider_error"),
+    (resend.exceptions.ResendError(401, "application_error", PRIVATE_BODY, ""), "provider_error"),
+    (resend.exceptions.ResendError(500, "HttpClientError", PRIVATE_BODY + API_KEY, ""), "network"),
+])
+def test_resend_sdk_error_is_categorized_and_redacted(app, monkeypatch, caplog, error, category):
     resend_config(app)
-    def reject(*args, **kwargs):
-        raise HTTPError(mail.RESEND_ENDPOINT, status, "private API key " + API_KEY, {}, io.BytesIO(PRIVATE_BODY.encode()))
-    monkeypatch.setattr(mail, "urlopen", reject)
+    monkeypatch.setattr(resend.Emails, "send", MagicMock(side_effect=error))
     with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
         mail.notify_lead(lead_object(description=PRIVATE_BODY))
     assert exc.value.category == category
@@ -137,18 +120,10 @@ def test_resend_http_failure_is_categorized_and_redacted(app, monkeypatch, caplo
     assert API_KEY not in caplog.text and PRIVATE_BODY not in caplog.text and "private API key" not in caplog.text
 
 
-def test_resend_network_failure_is_redacted(app, monkeypatch, caplog):
+@pytest.mark.parametrize("response", [None, {}, {"id": ""}, {"id": None}])
+def test_missing_sdk_message_id_is_not_marked_sent(app, monkeypatch, response):
     resend_config(app)
-    monkeypatch.setattr(mail, "urlopen", MagicMock(side_effect=URLError("private " + API_KEY + PRIVATE_BODY)))
-    with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
-        mail.notify_lead(lead_object(description=PRIVATE_BODY))
-    assert exc.value.category == "network"
-    assert API_KEY not in caplog.text and PRIVATE_BODY not in caplog.text
-
-
-def test_malformed_success_response_is_not_marked_sent(app, monkeypatch):
-    resend_config(app)
-    monkeypatch.setattr(mail, "urlopen", lambda *args, **kwargs: FakeResponse(b'{"unexpected":"shape"}'))
+    monkeypatch.setattr(resend.Emails, "send", MagicMock(return_value=response))
     with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
         mail.notify_lead(lead_object())
     assert exc.value.category == "provider_error"
@@ -157,10 +132,10 @@ def test_malformed_success_response_is_not_marked_sent(app, monkeypatch):
 def test_untrusted_lead_html_is_escaped(app, monkeypatch):
     resend_config(app)
     captured = {}
-    def accepted(request, timeout):
-        captured["body"] = json.loads(request.data)
-        return FakeResponse()
-    monkeypatch.setattr(mail, "urlopen", accepted)
+    def accepted(payload, options=None):
+        captured["body"] = payload
+        return {"id": "email_synthetic"}
+    monkeypatch.setattr(resend.Emails, "send", accepted)
     with app.app_context():
         mail.notify_lead(lead_object(description="<script>alert(1)</script> & details"))
     assert "&lt;script&gt;alert(1)&lt;/script&gt; &amp; details" in captured["body"]["html"]
@@ -172,7 +147,7 @@ def test_untrusted_lead_html_is_escaped(app, monkeypatch):
 def test_unsafe_reply_or_subject_header_rejected_before_network(app, monkeypatch, name, email):
     resend_config(app)
     send = MagicMock()
-    monkeypatch.setattr(mail, "urlopen", send)
+    monkeypatch.setattr(resend.Emails, "send", send)
     with app.app_context(), pytest.raises(mail.MailDeliveryError) as exc:
         mail.notify_lead(lead_object(name=name, email=email))
     assert exc.value.category == "validation" and not send.called
@@ -180,9 +155,9 @@ def test_unsafe_reply_or_subject_header_rejected_before_network(app, monkeypatch
 
 def test_explicit_resend_never_falls_back_to_smtp(app, monkeypatch):
     resend_config(app)
-    accepted = MagicMock(return_value=FakeResponse())
+    accepted = MagicMock(return_value={"id": "email_synthetic"})
     smtp = MagicMock(side_effect=AssertionError("SMTP fallback forbidden"))
-    monkeypatch.setattr(mail, "urlopen", accepted)
+    monkeypatch.setattr(resend.Emails, "send", accepted)
     monkeypatch.setattr(smtplib, "SMTP", smtp)
     with app.app_context():
         assert mail.notify_lead(lead_object()) == "sent"
@@ -193,7 +168,7 @@ def test_resend_configuration_does_not_require_smtp_and_disabled_needs_no_creden
     app.config.update(MAIL_ENABLED=True, MAIL_PROVIDER="resend", RESEND_API_KEY=API_KEY,
                       RESEND_FROM_ADDRESS="Website Leads <onboarding@resend.dev>", MAIL_ADDRESS="owner@example.com",
                       MAIL_APP_PASSWORD="", MAIL_HOST="")
-    monkeypatch.setattr(mail, "urlopen", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(resend.Emails, "send", lambda *args, **kwargs: {"id": "email_synthetic"})
     with app.app_context():
         assert mail.notify_lead(lead_object()) == "sent"
     app.config.update(MAIL_ENABLED=False, RESEND_API_KEY="", RESEND_FROM_ADDRESS="", MAIL_ADDRESS="")
@@ -220,24 +195,34 @@ def test_resend_config_validation_and_no_implicit_provider_selection(monkeypatch
 
 def test_public_failed_resend_keeps_committed_lead(app, client, lead_data, monkeypatch, caplog):
     resend_config(app, MAIL_ADDRESS="xentesvasilis@gmail.com")
-    monkeypatch.setattr(mail, "urlopen", MagicMock(side_effect=HTTPError(mail.RESEND_ENDPOINT, 401, API_KEY, {}, io.BytesIO(b"secret response"))))
+    monkeypatch.setattr(resend.Emails, "send", MagicMock(side_effect=resend.exceptions.InvalidApiKeyError(API_KEY, "invalid_api_key", 403)))
     lead_data["description"] = PRIVATE_BODY
     response = client.post("/contact?lang=en", data=lead_data)
     assert response.status_code == 303
     with app.app_context():
         lead = db.session.scalar(db.select(Lead))
         assert lead is not None and lead.description == PRIVATE_BODY and lead.email_status == "failed"
-    assert API_KEY not in caplog.text and PRIVATE_BODY not in caplog.text and "secret response" not in caplog.text
+    assert API_KEY not in caplog.text and PRIVATE_BODY not in caplog.text
 
 
 def test_cli_smoke_test_uses_mocked_resend(app, monkeypatch):
     resend_config(app, MAIL_ADDRESS="owner@example.com")
-    send = MagicMock(return_value=FakeResponse())
-    monkeypatch.setattr(mail, "urlopen", send)
+    send = MagicMock(return_value={"id": "email_synthetic"})
+    monkeypatch.setattr(resend.Emails, "send", send)
     result = app.test_cli_runner().invoke(args=["mail-smoke-test"])
     assert result.exit_code == 0, result.output
     assert "provider=resend" in result.output and API_KEY not in result.output
-    payload = json.loads(send.call_args.args[0].data)
+    payload = send.call_args.args[0]
     assert payload["subject"] == "Freelance website delivery test"
     assert "No customer information" in payload["text"]
     assert "html" not in payload
+
+
+def test_cli_smoke_test_failure_is_generic_and_redacted(app, monkeypatch):
+    resend_config(app, MAIL_ADDRESS="owner@example.com")
+    error = resend.exceptions.ResendError(403, "application_error", PRIVATE_BODY + API_KEY, "private details")
+    monkeypatch.setattr(resend.Emails, "send", MagicMock(side_effect=error))
+    result = app.test_cli_runner().invoke(args=["mail-smoke-test"])
+    assert result.exit_code != 0
+    assert "Email test failed via provider=resend" in result.output
+    assert API_KEY not in result.output and PRIVATE_BODY not in result.output

@@ -52,11 +52,13 @@ See [PROJECT_MAP.md](PROJECT_MAP.md) for routes, models and workflows.
 | `DATABASE_URL` | Blank → `instance/site.db`; production `postgresql+psycopg://...` |
 | `BASE_URL` | Canonical public origin, without path; HTTPS in production |
 | `FLASK_ENV` | Explicit application switch: `development` or `production`; does not enable debug |
-| `MAIL_ENABLED` | `false` by default; enables SMTP only when explicitly true |
-| `MAIL_HOST`, `MAIL_PORT` | SMTP host and port; Gmail defaults to 587 |
-| `MAIL_USE_TLS` | STARTTLS on 587; port 465 uses implicit TLS |
-| `MAIL_ADDRESS` | SMTP username, sender and recipient; `xentesvasilis@gmail.com` |
-| `MAIL_APP_PASSWORD` | Private SMTP app password; blank example only |
+| `MAIL_ENABLED` | `false` by default; enables notifications only when explicitly true |
+| `MAIL_PROVIDER` | Explicit `resend` or `smtp`; Railway Trial/Free/Hobby should use `resend` |
+| `RESEND_API_KEY` | Private credential required for enabled Resend delivery |
+| `RESEND_FROM_ADDRESS` | Verified Resend sender identity |
+| `MAIL_ADDRESS` | Notification recipient; SMTP also uses it as sender/login |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USE_TLS` | SMTP alternative settings; Gmail defaults to STARTTLS on 587 |
+| `MAIL_APP_PASSWORD` | Private SMTP app password; only required with enabled SMTP |
 | `CALENDLY_SCHEDULING_URL` | HTTPS `calendly.com` event link; blank until supplied |
 | `RATELIMIT_STORAGE_URI` | `memory://` for one-process development; shared storage required in production |
 | `TRUSTED_HOSTS` | Comma-separated production hostnames, required in production |
@@ -66,20 +68,20 @@ Existing process environment variables take precedence over `.env`. `postgres://
 ## Lead workflow and email
 
 1. A visitor submits the short `/contact` brief with privacy acknowledgement.
-2. Server-side validation and rate limits run; the lead is **committed before SMTP**.
-3. Notification uses `MAIL_ADDRESS` as SMTP username, From and To. It includes all brief fields and escapes HTML. Credentials and form contents are not logged.
+2. Server-side validation and rate limits run; the lead is **committed before notification delivery**.
+3. Notification uses the explicitly selected `MAIL_PROVIDER`. Resend uses its official HTTPS Python SDK with the configured sender, `MAIL_ADDRESS` recipient and validated client Reply-To. SMTP remains available for local development and eligible hosting. The message includes all brief fields and escapes HTML. Credentials and form contents are not logged.
 4. Notification state becomes `sent`, `failed` or `disabled`; an interrupted notification-state write leaves `pending`. Check all non-sent states in admin.
 5. The visitor receives the same success message whenever the initial save succeeded, then reaches `/book-call`. Database failure produces an honest error and does not send email.
 
 SMTP is synchronous with a 10-second socket timeout. It is not a durable mail queue: a process crash can leave a `pending` notification, and failed emails are not automatically retried. Admin is the authoritative lead inbox. A future job queue/outbox can add delivery retries without changing lead persistence. After POST, a redirect prevents browser refresh from resubmitting the form; multiple deliberate submissions can create separate leads.
 
-For Gmail, configure an eligible account with two-step verification and an app password, keep that password in `.env` or a production secret manager, and enable mail only after configuration. Provider/account policies determine app-password availability. Do not use or disclose the normal account password. STARTTLS and certificate verification are enabled; cleartext SMTP authentication is rejected.
+For local Gmail SMTP, configure an eligible account with two-step verification and an app password in the local `.env`. Do not use or disclose the normal account password. STARTTLS and certificate verification are enabled; cleartext SMTP authentication is rejected. Railway Trial/Free/Hobby production should use `MAIL_PROVIDER=resend`; see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for the required service variables and smoke test.
 
 ```powershell
 .\.venv\Scripts\python.exe -m flask --app wsgi mail-smoke-test
 ```
 
-This explicitly sends a harmless test from/to `MAIL_ADDRESS`, never displays the password, and fails safely when disabled/misconfigured. It has **not** been run against live SMTP during development. Automated tests block real SMTP connections and mock transport instead. See [Google's app-password guidance](https://support.google.com/accounts/answer/185833).
+This explicitly sends a harmless test using the selected provider, never displays credentials, and fails safely when disabled/misconfigured. Do not run it against production unless you intend to send the test email. Automated tests mock both transports. See [Google's app-password guidance](https://support.google.com/accounts/answer/185833).
 
 ## Calendly
 

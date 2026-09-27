@@ -6,7 +6,7 @@ Prepared 26 September 2026. **No deployment or Railway account access performed.
 
 Use one GitHub-backed Flask web service, one Railway PostgreSQL service and one Railway Redis service in the same isolated staging environment. No web-service volume, Docker deployment, extra worker service or second application is required. Use one web replica initially.
 
-Railpack detects `requirements.txt`; `.python-version` selects Python 3.12 (matching local testing; patch release can vary). Existing dependencies already include Linux Gunicorn, psycopg binary and Redis support. No dependency additions were needed. Do not use `run.py` or the Flask development server in Railway. [Railpack Python documentation](https://railpack.com/languages/python).
+Railpack detects `requirements.txt`; `.python-version` selects Python 3.12 (matching local testing; patch release can vary). Dependencies include Linux Gunicorn, psycopg binary, Redis support and the official Resend Python SDK (`resend>=2.48,<3`). Do not use `run.py` or the Flask development server in Railway. [Railpack Python documentation](https://railpack.com/languages/python).
 
 This preparation uses dashboard deployment settings plus `gunicorn.conf.py`. No duplicate Procfile, Railway JSON/TOML or Nixpacks config was added. Railway's current config-as-code reference marks legacy Railway JSON/TOML configuration deprecated; do not introduce it for this first deployment. [Configuration reference](https://docs.railway.com/config-as-code/reference).
 
@@ -101,7 +101,7 @@ Railway Free/Trial/Hobby blocks outbound SMTP. For this live service, configure 
 | `RESEND_API_KEY` | Private API key from Resend, entered only in Railway's secret variable UI |
 | `RESEND_FROM_ADDRESS` | Sender configured/verified in Resend; for initial testing `Website Leads <onboarding@resend.dev>` is supported subject to Resend account sending restrictions |
 
-SMTP variables are not required for Resend and can be unset/ignored. The provider never falls back automatically. `MAIL_PROVIDER` defaults to SMTP solely for backwards-compatible local development; production should explicitly set Resend. The HTTPS transport uses Python's standard library, sends a text and escaped HTML body, fixes From to the configured Resend identity and sets Reply-To to the validated client address. `sent` means Resend accepted the API request, not that the recipient's mailbox ultimately received it. Investigate final delivery/bounce state in Resend and Gmail.
+SMTP variables are not required for Resend and can be unset/ignored. The provider never falls back automatically. `MAIL_PROVIDER` defaults to SMTP solely for backwards-compatible local development; production should explicitly set Resend. The transport uses Resend's official Python SDK over HTTPS, sends whichever validated text/escaped HTML body parts exist, fixes From to the configured Resend identity and sets Reply-To to the validated client address. `sent` means Resend accepted the API request, not that the recipient's mailbox ultimately received it. Investigate final delivery/bounce state in Resend and Gmail.
 
 The existing Lead notification flow commits the Lead before calling a provider. A failed/disabled API call changes only its notification status; it never deletes the Lead. After adding the variables and deploying the new code, run the provider-selecting CLI smoke test from the web service environment:
 
@@ -160,7 +160,7 @@ Use synthetic submissions only. `/health` is public by design; configure staging
 
 ## Verification and remaining boundaries
 
-Final local results after Resend/retry changes: **190 passed**, including mocked Resend/SMTP, Lead persistence, retry authorization/CSRF/idempotency, existing CRM/public/Calendly tests, fresh and incremental migrations, production configuration, and template endpoint scans. `compileall` passed for app, migrations, scripts, tests, wsgi.py, run.py and gunicorn.conf.py. `pip check` reported no broken requirements. `git diff --check` passed. No migration was added and no external service was contacted.
+Final local results after SDK transport update: **199 passed**, including mocked Resend SDK/SMTP, Lead persistence, retry authorization/CSRF/idempotency, existing CRM/public/Calendly tests, fresh and incremental migrations, production configuration, and template endpoint scans. `compileall` passed for app, migrations, scripts, tests, wsgi.py, run.py and gunicorn.conf.py. `pip check` reported no broken requirements. `git diff --check` passed. No migration was added and no external service was contacted.
 
 Local automated configuration/health/proxy tests supplement the previous live PostgreSQL/Redis verification. All automated sockets, DNS resolution and SMTP and Resend API calls are mocked/blocked; no Railway, Gmail, Resend or Calendly account/API was used. Gunicorn is Linux-only and is not executed in the Windows virtual environment; its configuration is exercised locally, and actual Railpack/Gunicorn startup remains a first cloud deployment check.
 

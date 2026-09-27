@@ -1,21 +1,17 @@
 """Transactional notifications using explicitly selected Resend HTTPS or SMTP."""
-import json
 import smtplib
 import socket
 import ssl
+from collections.abc import Mapping
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from html import escape
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from email_validator import EmailNotValidError, validate_email
 from flask import current_app
+import resend
 
 from .content import CHOICES
-
-RESEND_ENDPOINT = "https://api.resend.com/emails"
-
 
 class MailDeliveryError(Exception):
     """Safe provider category only; never carries provider payload or credentials."""
@@ -44,13 +40,24 @@ def _safe_sender(value):
     return value
 
 
-def _resend_category(status):
-    if status in (401, 403):
+def _resend_category(error):
+    error_type = str(getattr(error, "error_type", "")).lower()
+    error_code = str(getattr(error, "code", ""))
+    error_class = type(error).__name__.lower()
+    if error_type in {"missing_api_key", "invalid_api_key"} or error_class in {
+        "missingapikeyerror", "invalidapikeyerror"
+    }:
         return "authentication"
-    if status in (400, 422):
-        return "validation"
-    if status == 429:
+    if error_code == "429" or "ratelimit" in error_class or "rate_limit" in error_type:
         return "rate_limit"
+    if error_code in {"400", "422"} or "validation" in error_class or error_type in {
+        "validation_error", "missing_required_field", "missing_required_fields"
+    }:
+        return "validation"
+    if error_type in {"httpclienterror", "network_error", "connection_error"}:
+        return "network"
+    if error_code in {"408", "504"}:
+        return "network"
     return "provider_error"
 
 
@@ -91,24 +98,24 @@ def _send_resend(message, idempotency_key=None):
     reply_to = message.get("Reply-To")
     if reply_to:
         payload["reply_to"] = _safe_address(str(reply_to))
-    headers = {"Authorization": "Bearer " + config["RESEND_API_KEY"], "Content-Type": "application/json"}
-    if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
-    request = Request(RESEND_ENDPOINT, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers=headers, method="POST")
     try:
-        with urlopen(request, timeout=10) as response:
-            if not 200 <= response.status < 300:
-                raise MailDeliveryError(_resend_category(response.status))
-            result = json.loads(response.read(65536).decode("utf-8"))
-    except HTTPError as exc:
-        raise MailDeliveryError(_resend_category(exc.code)) from None
-    except (URLError, TimeoutError, socket.timeout, ssl.SSLError, OSError):
+        resend.api_key = config["RESEND_API_KEY"]
+        options = {"idempotency_key": idempotency_key} if idempotency_key else None
+        response = resend.Emails.send(payload, options=options)
+    except resend.exceptions.ResendError as exc:
+        raise MailDeliveryError(_resend_category(exc)) from None
+    except resend.exceptions.NoContentError:
+        raise MailDeliveryError("provider_error") from None
+    except (TimeoutError, socket.timeout, ssl.SSLError, OSError):
         raise MailDeliveryError("network") from None
     except MailDeliveryError:
         raise
+    except (TypeError, ValueError):
+        raise MailDeliveryError("validation") from None
     except Exception:
-        raise MailDeliveryError("provider_error") from None
-    if not isinstance(result, dict) or not isinstance(result.get("id"), str) or not result["id"]:
+        raise MailDeliveryError("unknown") from None
+    email_id = response.get("id") if isinstance(response, Mapping) else getattr(response, "id", None)
+    if not isinstance(email_id, str) or not email_id.strip():
         raise MailDeliveryError("provider_error")
     return "sent"
 
